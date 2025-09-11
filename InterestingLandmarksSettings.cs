@@ -18,6 +18,9 @@ namespace InterestingLandmarks
 
         [Menu("Max Render Distance", "Landmarks beyond this distance from the player will not be shown.", parentIndex = 100)]
         public RangeNode<int> MaxRenderDistance { get; set; } = new RangeNode<int>(150, 50, 500);
+        
+        [Menu("Update Interval", "The time in milliseconds between landmark scans. Lower values are more responsive but use more resources.", parentIndex = 100)]
+        public RangeNode<int> UpdateInterval { get; set; } = new RangeNode<int>(250, 100, 1000);
 
         [Menu("Enable Dynamic Labels", "Show more detailed labels (e.g., Essence types).", parentIndex = 100)]
         public ToggleNode EnableDynamicLabels { get; set; } = new ToggleNode(true);

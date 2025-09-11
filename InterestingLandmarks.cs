@@ -4,6 +4,7 @@ using ExileCore2.PoEMemory.MemoryObjects;
 using ExileCore2.Shared.Enums;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using Vector2 = System.Numerics.Vector2;
@@ -13,6 +14,8 @@ namespace InterestingLandmarks
     public class InterestingLandmarks : BaseSettingsPlugin<InterestingLandmarksSettings>
     {
         private bool _renderEnabled = true;
+        private readonly Stopwatch _stopwatch = new();
+        private List<Renderable> _cachedRenderables = new();
 
         private record Renderable
         {
@@ -24,6 +27,7 @@ namespace InterestingLandmarks
         public override void OnLoad()
         {
             Settings.MasterToggleHotkey.OnValueChanged += () => { _renderEnabled = !_renderEnabled; };
+            _stopwatch.Start();
         }
 
         public override void Render()
@@ -49,15 +53,18 @@ namespace InterestingLandmarks
                     }
                 }
             }
+            
+            if (_stopwatch.ElapsedMilliseconds > Settings.UpdateInterval)
+            {
+                _cachedRenderables = CollectRenderables(playerPos);
+                _stopwatch.Restart();
+            }
 
             try
             {
-                var renderables = new List<Renderable>();
-                CollectRenderables(playerPos, renderables);
-
                 if (!Settings.EnableClustering)
                 {
-                    foreach (var renderable in renderables)
+                    foreach (var renderable in _cachedRenderables)
                     {
                         DrawLabel(renderable.Entity.GridPos, renderable.Label, renderable.Color);
                     }
@@ -66,12 +73,12 @@ namespace InterestingLandmarks
 
                 var drawnEntities = new HashSet<Entity>();
                 var clusterRadiusSquared = Settings.ClusterRadius.Value * Settings.ClusterRadius.Value;
-                foreach (var renderable in renderables)
+                foreach (var renderable in _cachedRenderables)
                 {
                     if (drawnEntities.Contains(renderable.Entity)) continue;
 
                     var cluster = new List<Renderable>();
-                    foreach (var otherRenderable in renderables)
+                    foreach (var otherRenderable in _cachedRenderables)
                     {
                         if (!drawnEntities.Contains(otherRenderable.Entity) && renderable.Label == otherRenderable.Label &&
                             Vector2.DistanceSquared(renderable.Entity.GridPos, otherRenderable.Entity.GridPos) < clusterRadiusSquared)
@@ -97,9 +104,10 @@ namespace InterestingLandmarks
             }
         }
         
-        private void CollectRenderables(Vector2 playerPos, List<Renderable> renderables)
+        private List<Renderable> CollectRenderables(Vector2 playerPos)
         {
             var maxRenderDistanceSquared = Settings.MaxRenderDistance.Value * Settings.MaxRenderDistance.Value;
+            var newRenderables = new List<Renderable>();
 
             foreach (var entityList in GameController.EntityListWrapper.ValidEntitiesByType.Values)
             {
@@ -118,10 +126,11 @@ namespace InterestingLandmarks
                     var renderableInfo = GetRenderableInfo(entity);
                     if (renderableInfo != null)
                     {
-                        renderables.Add(renderableInfo);
+                        newRenderables.Add(renderableInfo);
                     }
                 }
             }
+            return newRenderables;
         }
 
         private Renderable GetRenderableInfo(Entity entity)
@@ -228,10 +237,18 @@ namespace InterestingLandmarks
         private (string, Color)? GetEssenceInfo(Entity e)
         {
             var stateMachine = e.GetComponent<StateMachine>();
-            if (stateMachine == null) return null;
+            if (stateMachine?.States == null) return null;
 
-            var hasEssenceState = stateMachine.States.FirstOrDefault(s => s.Name == "num_essences");
-            if (hasEssenceState == null || hasEssenceState.Value < 1) return null;
+            bool hasEssence = false;
+            foreach (var state in stateMachine.States)
+            {
+                if (state.Name == "num_essences" && state.Value >= 1)
+                {
+                    hasEssence = true;
+                    break;
+                }
+            }
+            if (!hasEssence) return null;
             
             string label = "Essence";
             if (Settings.EnableDynamicLabels && e.Buffs != null)
@@ -261,4 +278,3 @@ namespace InterestingLandmarks
         }
     }
 }
-
