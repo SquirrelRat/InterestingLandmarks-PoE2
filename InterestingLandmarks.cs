@@ -227,15 +227,18 @@ namespace InterestingLandmarks
         private (string, Color)? GetSwitchInfo(Entity e) => e.Path.Contains("Switch") ? (e.RenderName, Settings.SwitchColor) : null;
         private (string, Color)? GetEssenceInfo(Entity e)
         {
-            var monolith = e.GetComponent<Monolith>();
-            if (monolith == null || monolith.IsOpened) return null;
+            var stateMachine = e.GetComponent<StateMachine>();
+            if (stateMachine == null) return null;
 
+            var hasEssenceState = stateMachine.States.FirstOrDefault(s => s.Name == "num_essences");
+            if (hasEssenceState == null || hasEssenceState.Value < 1) return null;
+            
             string label = "Essence";
-            if (Settings.EnableDynamicLabels)
+            if (Settings.EnableDynamicLabels && e.Buffs != null)
             {
                 var essenceNames = e.Buffs
                     .Select(b => b.Name.Replace("monster_aura_essence_", ""))
-                    .Select(name => char.ToUpper(name[0]) + name.Substring(1))
+                    .Select(name => char.ToUpper(name[0]) + name[1..])
                     .ToList();
                 if (essenceNames.Any())
                 {
@@ -258,3 +261,4 @@ namespace InterestingLandmarks
         }
     }
 }
+
