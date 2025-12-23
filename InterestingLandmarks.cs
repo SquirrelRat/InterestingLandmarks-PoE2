@@ -1,4 +1,4 @@
-﻿using ExileCore2;
+using ExileCore2;
 using ExileCore2.PoEMemory.Components;
 using ExileCore2.PoEMemory.MemoryObjects;
 using ExileCore2.Shared.Enums;
@@ -24,6 +24,18 @@ namespace InterestingLandmarks
             public Color Color { get; init; }
         }
 
+        private static readonly EntityType[] RelevantTypes =
+        {
+            EntityType.Chest,
+            EntityType.AreaTransition,
+            EntityType.IngameIcon,
+            EntityType.Waypoint,
+            EntityType.Monolith,
+            EntityType.Shrine,
+            EntityType.Breach,
+            EntityType.Terrain
+        };
+
         public override void OnLoad()
         {
             Settings.MasterToggleHotkey.OnValueChanged += () => { _renderEnabled = !_renderEnabled; };
@@ -32,15 +44,38 @@ namespace InterestingLandmarks
 
         public override void Render()
         {
+            var ingameUi = GameController.Game.IngameState.IngameUi;
+
             if (!_renderEnabled || !Settings.Enable || GameController.Area.CurrentArea == null || GameController.Area.CurrentArea.IsTown
                 || GameController.Area.CurrentArea.IsHideout || GameController.IsLoading || !GameController.InGame
-                || GameController.Game.IngameState.IngameUi.StashElement.IsVisibleLocal
-                || !GameController.Game.IngameState.IngameUi.Map.LargeMap.IsVisible)
+                || !ingameUi.Map.LargeMap.IsVisible)
+            {
+                return;
+            }
+
+            if (ingameUi.InventoryPanel.IsVisible ||
+                ingameUi.TreePanel.IsVisible ||
+                ingameUi.AtlasTreePanel.IsVisible ||
+                ingameUi.SkillsWindow.IsVisible ||
+                ingameUi.WorldMap.IsVisible ||
+                ingameUi.SettingsPanel.IsVisible ||
+                ingameUi.StashElement.IsVisible ||
+                ingameUi.GuildStashElement.IsVisible ||
+                ingameUi.NpcDialog.IsVisible ||
+                ingameUi.PurchaseWindow.IsVisible ||
+                ingameUi.SellWindow.IsVisible ||
+                ingameUi.TradeWindow.IsVisible)
             {
                 return;
             }
 
             var playerPos = GameController.Player.GridPos;
+
+            if (_stopwatch.ElapsedMilliseconds > Settings.UpdateInterval)
+            {
+                _cachedRenderables = CollectRenderables(playerPos);
+                _stopwatch.Restart();
+            }
 
             if (Settings.ShowRituals)
             {
@@ -53,75 +88,78 @@ namespace InterestingLandmarks
                     }
                 }
             }
-            
-            if (_stopwatch.ElapsedMilliseconds > Settings.UpdateInterval)
-            {
-                _cachedRenderables = CollectRenderables(playerPos);
-                _stopwatch.Restart();
-            }
 
             try
             {
-                if (!Settings.EnableClustering)
-                {
-                    foreach (var renderable in _cachedRenderables)
-                    {
-                        DrawLabel(renderable.Entity.GridPos, renderable.Label, renderable.Color);
-                    }
-                    return;
-                }
-
-                var drawnEntities = new HashSet<Entity>();
-                var clusterRadiusSquared = Settings.ClusterRadius.Value * Settings.ClusterRadius.Value;
-                foreach (var renderable in _cachedRenderables)
-                {
-                    if (drawnEntities.Contains(renderable.Entity)) continue;
-
-                    var cluster = new List<Renderable>();
-                    foreach (var otherRenderable in _cachedRenderables)
-                    {
-                        if (!drawnEntities.Contains(otherRenderable.Entity) && renderable.Label == otherRenderable.Label &&
-                            Vector2.DistanceSquared(renderable.Entity.GridPos, otherRenderable.Entity.GridPos) < clusterRadiusSquared)
-                        {
-                            cluster.Add(otherRenderable);
-                            drawnEntities.Add(otherRenderable.Entity);
-                        }
-                    }
-
-                    if (cluster.Count > 0)
-                    {
-                        var avgPosX = cluster.Sum(r => r.Entity.GridPos.X) / cluster.Count;
-                        var avgPosY = cluster.Sum(r => r.Entity.GridPos.Y) / cluster.Count;
-                        var centerPos = new Vector2(avgPosX, avgPosY);
-                        var label = cluster.Count > 1 ? $"{cluster[0].Label} (x{cluster.Count})" : cluster[0].Label;
-                        DrawLabel(centerPos, label, cluster[0].Color);
-                    }
-                }
+                DrawRenderables();
             }
             catch (Exception e)
             {
                 LogError($"InterestingLandmarks.Render() failed: {e.Message}");
             }
         }
-        
+
+        private void DrawRenderables()
+        {
+            if (!Settings.EnableClustering)
+            {
+                foreach (var renderable in _cachedRenderables)
+                {
+                    DrawLabel(renderable.Entity.GridPos, renderable.Label, renderable.Color);
+                }
+                return;
+            }
+
+            var clusterRadiusSquared = (float)Settings.ClusterRadius.Value * Settings.ClusterRadius.Value;
+            var processedIndices = new HashSet<int>();
+
+            for (int i = 0; i < _cachedRenderables.Count; i++)
+            {
+                if (processedIndices.Contains(i)) continue;
+
+                var current = _cachedRenderables[i];
+                var cluster = new List<Renderable> { current };
+                processedIndices.Add(i);
+
+                for (int j = i + 1; j < _cachedRenderables.Count; j++)
+                {
+                    if (processedIndices.Contains(j)) continue;
+
+                    var other = _cachedRenderables[j];
+                    if (current.Label == other.Label &&
+                        Vector2.DistanceSquared(current.Entity.GridPos, other.Entity.GridPos) < clusterRadiusSquared)
+                    {
+                        cluster.Add(other);
+                        processedIndices.Add(j);
+                    }
+                }
+
+                var label = cluster.Count > 1 ? $"{cluster[0].Label} (x{cluster.Count})" : cluster[0].Label;
+                var drawPos = cluster.Count > 1 
+                    ? cluster.Aggregate(Vector2.Zero, (acc, r) => acc + r.Entity.GridPos) / cluster.Count 
+                    : current.Entity.GridPos;
+
+                DrawLabel(drawPos, label, cluster[0].Color);
+            }
+        }
+
         private List<Renderable> CollectRenderables(Vector2 playerPos)
         {
-            var maxRenderDistanceSquared = Settings.MaxRenderDistance.Value * Settings.MaxRenderDistance.Value;
+            var maxRenderDistanceSquared = (float)Settings.MaxRenderDistance.Value * Settings.MaxRenderDistance.Value;
             var newRenderables = new List<Renderable>();
 
-            foreach (var entityList in GameController.EntityListWrapper.ValidEntitiesByType.Values)
+            foreach (var type in RelevantTypes)
             {
-                foreach (var entity in entityList)
+                if (!GameController.EntityListWrapper.ValidEntitiesByType.TryGetValue(type, out var entities))
+                    continue;
+
+                foreach (var entity in entities)
                 {
-                    if (entity.Path.Contains("RitualRuneObject"))
-                    {
+                    if (entity.GridPos == Vector2.Zero)
                         continue;
-                    }
-                    
-                    if (entity.GridPos == Vector2.Zero || Vector2.DistanceSquared(playerPos, entity.GridPos) > maxRenderDistanceSquared)
-                    {
+
+                    if (Vector2.DistanceSquared(playerPos, entity.GridPos) > maxRenderDistanceSquared)
                         continue;
-                    }
 
                     var renderableInfo = GetRenderableInfo(entity);
                     if (renderableInfo != null)
@@ -135,26 +173,22 @@ namespace InterestingLandmarks
 
         private Renderable GetRenderableInfo(Entity entity)
         {
-            (string Label, Color Color)? info = null;
-            switch (entity.Type)
+            (string Label, Color Color)? info = entity.Type switch
             {
-                case EntityType.Chest: if (Settings.ShowChests) info = GetChestInfo(entity); break;
-                case EntityType.AreaTransition: if (Settings.ShowTransitions) info = GetTransitionInfo(entity); break;
-                case EntityType.IngameIcon: if (Settings.ShowPoI) info = GetPoIInfo(entity); break;
-                case EntityType.Waypoint: if (Settings.ShowWaypoints) info = GetWaypointInfo(entity); break;
-                case EntityType.Monolith: if (Settings.ShowEssence) info = GetEssenceInfo(entity); break;
-                case EntityType.Shrine: if (Settings.ShowShrine) info = GetShrineInfo(entity); break;
-                case EntityType.Breach: if (Settings.ShowBreach) info = ("Breach", Settings.BreachColor); break;
-                case EntityType.Terrain:
-                    if (Settings.ShowSwitch) info = GetSwitchInfo(entity);
-                    break;
-            }
-            
-            if (info.HasValue)
-            {
-                return new Renderable { Entity = entity, Label = info.Value.Label, Color = info.Value.Color };
-            }
-            return null;
+                EntityType.Chest when Settings.ShowChests => GetChestInfo(entity),
+                EntityType.AreaTransition when Settings.ShowTransitions => GetTransitionInfo(entity),
+                EntityType.IngameIcon when Settings.ShowPoI => GetPoIInfo(entity),
+                EntityType.Waypoint when Settings.ShowWaypoints => GetWaypointInfo(entity),
+                EntityType.Monolith when Settings.ShowEssence => GetEssenceInfo(entity),
+                EntityType.Shrine when Settings.ShowShrine => GetShrineInfo(entity),
+                EntityType.Breach when Settings.ShowBreach => ("Breach", Settings.BreachColor),
+                EntityType.Terrain => GetTerrainInfo(entity),
+                _ => null
+            };
+
+            return info.HasValue 
+                ? new Renderable { Entity = entity, Label = info.Value.Label, Color = info.Value.Color } 
+                : null;
         }
 
         private (string, Color)? GetChestInfo(Entity e)
@@ -166,14 +200,11 @@ namespace InterestingLandmarks
             {
                 if (!Settings.ShowStrongboxes) return null;
                 var (label, color) = GetStrongboxDetails(e);
-                if (color.HasValue) return (label, color.Value);
+                return color.HasValue ? (label, color.Value) : null;
             }
-            else
-            {
-                var color = GetChestColor(e);
-                if (color.HasValue) return (e.RenderName, color.Value);
-            }
-            return null;
+
+            var chestColor = GetChestColor(e);
+            return chestColor.HasValue ? (e.RenderName, chestColor.Value) : null;
         }
         
         private (string label, Color? color) GetStrongboxDetails(Entity e)
@@ -185,70 +216,67 @@ namespace InterestingLandmarks
             if (Settings.ShowCartographerStrongbox && path.Contains("Cartographer")) return ("Cartographer's Strongbox", Settings.CartographerStrongboxColor);
             if (Settings.ShowDivinerStrongbox && path.Contains("Diviner")) return ("Diviner's Strongbox", Settings.DivinerStrongboxColor);
 
-            if (Settings.ShowOtherStrongbox)
+            if (!Settings.ShowOtherStrongbox) return (null, null);
+
+            Color? rarityColor = e.Rarity switch
             {
-                Color? rarityColor = e.Rarity switch
-                {
-                    MonsterRarity.White => Settings.OtherStrongboxColor,
-                    MonsterRarity.Magic => Settings.MagicChestColor,
-                    MonsterRarity.Rare => Settings.RareChestColor,
-                    _ => null
-                };
-                if (rarityColor.HasValue) return (e.RenderName, rarityColor.Value);
-            }
-            return (null, null);
+                MonsterRarity.White => Settings.OtherStrongboxColor,
+                MonsterRarity.Magic => Settings.MagicChestColor,
+                MonsterRarity.Rare => Settings.RareChestColor,
+                _ => null
+            };
+            return (e.RenderName, rarityColor);
         }
 
         private Color? GetChestColor(Entity chestEntity)
         {
-            switch (chestEntity.Rarity)
+            return chestEntity.Rarity switch
             {
-                case MonsterRarity.White:
-                {
-                    if (!Settings.ShowWhiteChests) return null;
-                    var playerPos = GameController.Player.GridPos;
-                    var chestPos = chestEntity.GridPos;
-                    float distance = Vector2.Distance(playerPos, chestPos);
-                    float distanceRatio = distance / Settings.MaxRenderDistance.Value;
-                    float alphaMultiplier = 1.0f - distanceRatio;
-                    alphaMultiplier = Math.Clamp(alphaMultiplier, 0.2f, 1.0f);
-                    Color baseColor = Settings.WhiteChestColor.Value;
-                    int newAlpha = (int)(baseColor.A * alphaMultiplier);
-                    return Color.FromArgb(newAlpha, baseColor);
-                }
-                case MonsterRarity.Magic: return Settings.ShowMagicChests ? Settings.MagicChestColor.Value : null;
-                case MonsterRarity.Rare: return Settings.ShowRareChests ? Settings.RareChestColor.Value : null;
-                case MonsterRarity.Unique: return Settings.ShowUniqueChests ? Settings.UniqueChestColor.Value : null;
-                default: return null;
-            }
+                MonsterRarity.White when Settings.ShowWhiteChests => GetWhiteChestColor(chestEntity),
+                MonsterRarity.Magic when Settings.ShowMagicChests => Settings.MagicChestColor.Value,
+                MonsterRarity.Rare when Settings.ShowRareChests => Settings.RareChestColor.Value,
+                MonsterRarity.Unique when Settings.ShowUniqueChests => Settings.UniqueChestColor.Value,
+                _ => null
+            };
+        }
+
+        private Color GetWhiteChestColor(Entity chestEntity)
+        {
+            var playerPos = GameController.Player.GridPos;
+            var chestPos = chestEntity.GridPos;
+            float maxDistSq = (float)Settings.MaxRenderDistance.Value * Settings.MaxRenderDistance.Value;
+            float distSq = Vector2.DistanceSquared(playerPos, chestPos);
+            
+            float alphaMultiplier = 1.0f - (float)Math.Sqrt(distSq / maxDistSq);
+            alphaMultiplier = Math.Clamp(alphaMultiplier, 0.2f, 1.0f);
+            
+            Color baseColor = Settings.WhiteChestColor.Value;
+            return Color.FromArgb((int)(baseColor.A * alphaMultiplier), baseColor);
+        }
+
+        private (string, Color)? GetTerrainInfo(Entity e)
+        {
+            if (Settings.ShowSwitch && e.Path.Contains("Switch")) return (e.RenderName, Settings.SwitchColor);
+            return null;
         }
 
         private (string, Color)? GetTransitionInfo(Entity e) => (e.RenderName, Settings.TransitionsColor);
+        
         private (string, Color)? GetPoIInfo(Entity e)
         {
-            if (!e.Path.Contains("Expedition") && !e.Path.Contains("Ritual"))
-            {
-                return (e.GetComponent<MinimapIcon>()?.Name ?? "PoI", Settings.PoIColor);
-            }
-            return null;
+            if (e.Path.Contains("Expedition") || e.Path.Contains("Ritual")) return null;
+            return (e.GetComponent<MinimapIcon>()?.Name ?? "PoI", Settings.PoIColor);
         }
+
         private (string, Color)? GetWaypointInfo(Entity e) => (e.GetComponent<MinimapIcon>()?.Name ?? "Waypoint", Settings.WaypointsColor);
-        private (string, Color)? GetSwitchInfo(Entity e) => e.Path.Contains("Switch") ? (e.RenderName, Settings.SwitchColor) : null;
+
         private (string, Color)? GetEssenceInfo(Entity e)
         {
             var stateMachine = e.GetComponent<StateMachine>();
             if (stateMachine?.States == null) return null;
 
-            bool hasEssence = false;
-            foreach (var state in stateMachine.States)
-            {
-                if (state.Name == "num_essences" && state.Value >= 1)
-                {
-                    hasEssence = true;
-                    break;
-                }
-            }
-            if (!hasEssence) return null;
+            if (!stateMachine.States.Any(state => state.Name == "num_essences" && state.Value >= 1))
+                return null;
             
             string label = "Essence";
             if (Settings.EnableDynamicLabels && e.Buffs != null)
@@ -264,12 +292,14 @@ namespace InterestingLandmarks
             }
             return (label, Settings.EssenceColor);
         }
+
         private (string, Color)? GetShrineInfo(Entity e)
         {
             if (!e.IsTargetable) return null;
             string label = Settings.EnableDynamicLabels ? e.RenderName : "Shrine";
             return (label, Settings.ShrineColor);
         }
+
         private void DrawLabel(Vector2 gridPos, string text, Color color)
         {
             var screenPos = GameController.IngameState.Data.GetGridMapScreenPosition(gridPos);

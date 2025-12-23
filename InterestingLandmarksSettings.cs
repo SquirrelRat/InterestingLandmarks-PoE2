@@ -1,4 +1,4 @@
-﻿using ExileCore2.Shared.Attributes;
+using ExileCore2.Shared.Attributes;
 using ExileCore2.Shared.Interfaces;
 using ExileCore2.Shared.Nodes;
 using System.Drawing;
@@ -14,7 +14,7 @@ namespace InterestingLandmarks
         public EmptyNode GeneralSettings { get; set; } = new();
 
         [Menu("Master Toggle Hotkey", "A hotkey to quickly enable/disable all rendering.", parentIndex = 100)]
-        public HotkeyNode MasterToggleHotkey { get; set; } = new HotkeyNode(Keys.None);
+        public HotkeyNodeV2 MasterToggleHotkey { get; set; } = new HotkeyNodeV2(Keys.None);
 
         [Menu("Max Render Distance", "Landmarks beyond this distance from the player will not be shown.", parentIndex = 100)]
         public RangeNode<int> MaxRenderDistance { get; set; } = new RangeNode<int>(150, 50, 500);
