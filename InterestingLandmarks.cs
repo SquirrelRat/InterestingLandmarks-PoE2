@@ -24,6 +24,8 @@ namespace InterestingLandmarks
             public Color Color { get; init; }
         }
 
+        private string GetLabel(Entity e) => Settings.UseRawNames.Value && e.GetComponent<MinimapIcon>()?.Name is string rawName ? rawName : e.RenderName;
+
         private static readonly EntityType[] RelevantTypes =
         {
             EntityType.Chest,
@@ -204,14 +206,14 @@ namespace InterestingLandmarks
             }
 
             var chestColor = GetChestColor(e);
-            return chestColor.HasValue ? (e.RenderName, chestColor.Value) : null;
+            return chestColor.HasValue ? (GetLabel(e), chestColor.Value) : null;
         }
         
         private (string label, Color? color) GetStrongboxDetails(Entity e)
         {
             string path = e.Path;
             
-            if (Settings.ShowUniqueStrongbox && e.Rarity == MonsterRarity.Unique) return (e.RenderName, Settings.UniqueStrongboxColor);
+            if (Settings.ShowUniqueStrongbox && e.Rarity == MonsterRarity.Unique) return (GetLabel(e), Settings.UniqueStrongboxColor);
             if (Settings.ShowArcanistStrongbox && path.Contains("Arcanist")) return ("Arcanist's Strongbox", Settings.ArcanistStrongboxColor);
             if (Settings.ShowCartographerStrongbox && path.Contains("Cartographer")) return ("Cartographer's Strongbox", Settings.CartographerStrongboxColor);
             if (Settings.ShowDivinerStrongbox && path.Contains("Diviner")) return ("Diviner's Strongbox", Settings.DivinerStrongboxColor);
@@ -225,7 +227,7 @@ namespace InterestingLandmarks
                 MonsterRarity.Rare => Settings.RareChestColor,
                 _ => null
             };
-            return (e.RenderName, rarityColor);
+            return (GetLabel(e), rarityColor);
         }
 
         private Color? GetChestColor(Entity chestEntity)
@@ -256,19 +258,20 @@ namespace InterestingLandmarks
 
         private (string, Color)? GetTerrainInfo(Entity e)
         {
-            if (Settings.ShowSwitch && e.Path.Contains("Switch")) return (e.RenderName, Settings.SwitchColor);
+            if (Settings.ShowRituals && e.Path.Contains("RitualRuneObject")) return ("Ritual", Settings.RitualColor);
+            if (Settings.ShowSwitch && e.Path.Contains("Switch")) return (GetLabel(e), Settings.SwitchColor);
             return null;
         }
 
-        private (string, Color)? GetTransitionInfo(Entity e) => (e.RenderName, Settings.TransitionsColor);
+        private (string, Color)? GetTransitionInfo(Entity e) => (GetLabel(e), Settings.TransitionsColor);
         
         private (string, Color)? GetPoIInfo(Entity e)
         {
             if (e.Path.Contains("Expedition") || e.Path.Contains("Ritual")) return null;
-            return (e.GetComponent<MinimapIcon>()?.Name ?? "PoI", Settings.PoIColor);
+            return (GetLabel(e) ?? "PoI", Settings.PoIColor);
         }
 
-        private (string, Color)? GetWaypointInfo(Entity e) => (e.GetComponent<MinimapIcon>()?.Name ?? "Waypoint", Settings.WaypointsColor);
+        private (string, Color)? GetWaypointInfo(Entity e) => (GetLabel(e) ?? "Waypoint", Settings.WaypointsColor);
 
         private (string, Color)? GetEssenceInfo(Entity e)
         {
@@ -296,7 +299,7 @@ namespace InterestingLandmarks
         private (string, Color)? GetShrineInfo(Entity e)
         {
             if (!e.IsTargetable) return null;
-            string label = Settings.EnableDynamicLabels ? e.RenderName : "Shrine";
+            string label = Settings.EnableDynamicLabels ? GetLabel(e) : "Shrine";
             return (label, Settings.ShrineColor);
         }
 

@@ -25,6 +25,9 @@ namespace InterestingLandmarks
         [Menu("Enable Dynamic Labels", "Show more detailed labels (e.g., Essence types).", parentIndex = 100)]
         public ToggleNode EnableDynamicLabels { get; set; } = new ToggleNode(true);
 
+        [Menu("Use Raw Names", "Use raw minimap data text instead of rendered names where available.", parentIndex = 100)]
+        public ToggleNode UseRawNames { get; set; } = new ToggleNode(false);
+
         [Menu("Enable Clustering", "Group nearby landmarks of the same type into a single label.", parentIndex = 100)]
         public ToggleNode EnableClustering { get; set; } = new ToggleNode(true);
 
